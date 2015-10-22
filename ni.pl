@@ -2,7 +2,7 @@
 
 use strict;
 use warnings;
-use IO::Uncompress::Gunzip;
+use IO::Uncompress::Gunzip qw(gunzip $GunzipError);
 use Data::Dumper;
 
 ### GLOBAL VARIABLES ###
@@ -13,6 +13,7 @@ my @files;
 push @files,"./test.v";
 ### DEBUG ###
 my %design_db;
+
 my %cell_list;
 my %connections;
 my %std_cell;
@@ -20,10 +21,25 @@ my %std_cell;
 local $/ = ";";
 while (@files) {
 	my $vlg_file = shift @files;
-	open my $VLG,"<",$vlg_file;
-	#my $VLG = new IO::Uncompress::Gunzip $vlg_file or die "gunzip failed: $GunzipError\n";
+    my $file_lines;
+    my $VLG;
+    if ($vlg_file =~ /\.v\.gz/) {
+	    $VLG = new IO::Uncompress::Gunzip $vlg_file or die "gunzip failed: $GunzipError\n";
+        $file_lines = `zgrep ";" $vlg_file | wc -l`;
+        chomp $file_lines;
+    } else {
+        open $VLG,"<",$vlg_file;
+        $file_lines = `grep ";" $vlg_file | wc -l`;
+        chomp $file_lines;
+    }
+    my $percent_count = 10;
 	my $module_name = "";
 	while (<$VLG>) {
+        my $percent = $. / $file_lines * 100;
+        if ($percent >= $percent_count) {
+            print "Reading $vlg_file: $percent_count% completed\n";
+            $percent_count += 10;
+        }
         next if /^\/\//;
         next if /^\s*$/;
         my $line = $_;
@@ -37,10 +53,12 @@ while (@files) {
         }
 		if ($line =~ /\bmodule\b/) {
 			$line =~ /\s*module\s+(\S+)\s+\((.*)\)\s*/;
-            $cell_list{$module_name}{"instantiated_by_others"} = 0;
-			$cell_list{$module_name}{"has_definition"} = 1;
 			$module_name = $1;
 			my $port_list = $2;
+			if (not defined $cell_list{$module_name}{"instantiated_by_others"}) {
+                $cell_list{$module_name}{"instantiated_by_others"} = 0;
+            }
+			$cell_list{$module_name}{"has_definition"} = 1;
 			$port_list =~ s/\s+//g;
 			my @ports = split ',',$port_list;
 			while (@ports) {
@@ -151,107 +169,137 @@ while (@files) {
 		} else {
 			# cell instantiation
             my ($cell,$inst,$rest) = split /\s+/,$line,3;
+            $cell_list{$cell}{"instantiated_by_others"} = 1;
+            if ($cell_list{$cell}{"instantiated_by_others"} and $cell_list{$cell}{"has_definition"}) {
+                $design_db{"$module_name"}{"cell"}{"$inst"}{"is_hierarchical_cell"} = 1;
+            }
             $design_db{"$module_name"}{"cell"}{"$inst"}{"ref_name"} = $cell;
             $design_db{"$module_name"}{"cell"}{"$inst"}{"full_name"} = $inst;
             my $seq_flag = &is_sequential_cell($cell);
             $design_db{"$module_name"}{"cell"}{"$inst"}{"is_sequential"} = $seq_flag;
             $design_db{"$module_name"}{"cell"}{"$inst"}{"is_combinational"} = not $seq_flag;
-            print "DEBUG $line\n" if not defined $rest;
-            while($rest =~ /\.(\S+)\s*\(\s*(\S+?)\s*\)/g) {
-                my $pin = $1;
-                my $net = $2;
-                if ($net =~ /\d+'b\d+/) {
-                	if ($net =~ /\d+'0+/) {
-                		$net = "CONSTANT0";
-                	} elsif ($net =~ /\d+'b1+/) {
-                		$net = "CONSTANT1";
-                	} else {
-                		$net = "CONSTANTS";
-                	}
-                }
-                my $is_clock_pin = 0;
-                if ($pin =~ /\bCLK\b|\bCK\b|\bclk\b|\bck\b/) {
-                	$design_db{"$module_name"}{"pin"}{$inst}{$pin}{"is_clock_pin"} = 1;
-                	$design_db{"$module_name"}{"pin"}{$inst}{$pin}{"is_data_pin"} = 0;
-                	$is_clock_pin = 1;
-                } else {
-                	$design_db{"$module_name"}{"pin"}{$inst}{$pin}{"is_clock_pin"} = 0;
-                	$design_db{"$module_name"}{"pin"}{$inst}{$pin}{"is_data_pin"} = 1;
-                	$is_clock_pin = 0;
-                }
-                my $ref_name = "$cell/$pin";
-                my $full_name = "$inst/$pin";
-                $design_db{"$module_name"}{"pin"}{$inst}{$pin}{"full_name"} = $full_name;
-                $design_db{"$module_name"}{"pin"}{$inst}{$pin}{"ref_name"} = $ref_name;
-                my $pin_direction = &get_pin_direction($cell,$pin);
-                $design_db{"$module_name"}{"pin"}{$inst}{$pin}{"direction"} = $pin_direction;
-                if ($pin_direction eq "in") {
-                    push @{$design_db{"$module_name"}{"pin"}{$inst}{$pin}{"fanin_nets"}},$net;
-                    if (defined $design_db{"$module_name"}{"net"}{"$net"}) {
-                        push @{$design_db{$module_name}{"net"}{$net}{"leaf_loads"}},$full_name;
-                        if ($is_clock_pin) {
-                        	$design_db{$module_name}{"net"}{$net}{"is_clock_network"} = 1;
-                        } else {
-                        	$design_db{$module_name}{"net"}{$net}{"is_clock_network"} = 0;
-                        }
-                    } elsif (defined $design_db{"$module_name"}{"port"}{$net}) {
-                        push @{$design_db{"$module_name"}{"port"}{$net}{"connections"}},$full_name;
-                        if ($is_clock_pin) {
-                        	$design_db{$module_name}{"port"}{$net}{"is_clock_network"} = 1;
-                        } else {
-                        	$design_db{$module_name}{"port"}{$net}{"is_clock_network"} = 0;
-                        }
-                    } else {
-                        print STDERR "Cannot find definition of net or port $net, connected to $full_name in module $module_name\n" if ($net !~ /CONSTANT/);
-                    }
-                } elsif ($pin_direction eq "out") {
-                    push @{$design_db{"$module_name"}{"pin"}{$inst}{$pin}{"fanout_nets"}},$net;
-                    if (defined $design_db{"$module_name"}{"net"}{"$net"}) {
-                        push @{$design_db{$module_name}{"net"}{$net}{"leaf_drivers"}},$full_name;
-                        if ($is_clock_pin) {
-                        	$design_db{$module_name}{"net"}{$net}{"is_clock_network"} = 1;
-                        } else {
-                        	$design_db{$module_name}{"net"}{$net}{"is_clock_network"} = 0;
-                        }
-                    } elsif (defined $design_db{"$module_name"}{"port"}{$net}) {
-                        push @{$design_db{"$module_name"}{"port"}{$net}{"connections"}},$full_name;
-                        if ($is_clock_pin) {
-                        	$design_db{$module_name}{"port"}{$net}{"is_clock_network"} = 1;
-                        } else {
-                        	$design_db{$module_name}{"port"}{$net}{"is_clock_network"} = 0;
-                        }
-                    } else {
-                        print STDERR "Cannot find definition of net or port $net, connected to $full_name in module $module_name\n" if ($net !~ /CONSTANT/);
-                    }
-                } else {
-                    push @{$design_db{"$module_name"}{"pin"}{$inst}{$pin}{"fanin_nets"}},$net;
-                    push @{$design_db{"$module_name"}{"pin"}{$inst}{$pin}{"fanout_nets"}},$net;
-                    if (defined $design_db{"$module_name"}{"net"}{"$net"}) {
-                        push @{$design_db{$module_name}{"net"}{$net}{"leaf_drivers"}},$full_name;
-                        push @{$design_db{$module_name}{"net"}{$net}{"leaf_loads"}},$full_name;
-                        if ($is_clock_pin) {
-                        	$design_db{$module_name}{"net"}{$net}{"is_clock_network"} = 1;
-                        } else {
-                        	$design_db{$module_name}{"net"}{$net}{"is_clock_network"} = 0;
-                        }
-                    } elsif (defined $design_db{"$module_name"}{"port"}{$net}) {
-                        push @{$design_db{"$module_name"}{"port"}{$net}{"connections"}},$full_name;
-                        if ($is_clock_pin) {
-                        	$design_db{$module_name}{"port"}{$net}{"is_clock_network"} = 1;
-                        } else {
-                        	$design_db{$module_name}{"port"}{$net}{"is_clock_network"} = 0;
-                        }
-                    } else {
-                        print STDERR "Cannot find definition of net or port $net, connected to $full_name in module $module_name\n" if ($net !~ /CONSTANT/);
-                    }
-                }
-            }
+            $rest =~ s/\s+//g;
+            my @connect_list = split ",",$rest;
+            while (@connect_list) {
+            	my $connect_seg = shift @connect_list;
+	            while($connect_seg =~ /\.(\S+)\((\S+?)\)/g) {
+	                my $pin = $1;
+	                my $net = $2;
+	                if ($net =~ /\d+'b\d+/) {
+	                	if ($net =~ /\d+'b0+/) {
+	                		$net = "CONSTANT0";
+	                	} elsif ($net =~ /\d+'b1+/) {
+	                		$net = "CONSTANT1";
+	                	} else {
+	                		$net = "CONSTANTS";
+	                	}
+	                }
+	                my $is_clock_pin = 0;
+	                if ($pin =~ /\bCLK\b|\bCK\b|\bclk\b|\bck\b/) {
+	                	$design_db{"$module_name"}{"cell"}{$inst}{"pin"}{$pin}{"is_clock_pin"} = 1;
+	                	$design_db{"$module_name"}{"cell"}{$inst}{"pin"}{$pin}{"is_data_pin"} = 0;
+	                	$is_clock_pin = 1;
+	                } else {
+	                	$design_db{"$module_name"}{"cell"}{$inst}{"pin"}{$pin}{"is_clock_pin"} = 0;
+	                	$design_db{"$module_name"}{"cell"}{$inst}{"pin"}{$pin}{"is_data_pin"} = 1;
+	                	$is_clock_pin = 0;
+	                }
+	                my $ref_name = "$cell/$pin";
+	                my $full_name = "$inst/$pin";
+	                $design_db{"$module_name"}{"cell"}{$inst}{"pin"}{$pin}{"full_name"} = $full_name;
+	                $design_db{"$module_name"}{"cell"}{$inst}{"pin"}{$pin}{"ref_name"} = $ref_name;
+	                my $pin_direction = &get_pin_direction($cell,$pin);
+	                $design_db{"$module_name"}{"cell"}{$inst}{"pin"}{$pin}{"direction"} = $pin_direction;
+	                if ($pin_direction eq "in") {
+	                    push @{$design_db{"$module_name"}{"cell"}{$inst}{"pin"}{$pin}{"fanin_nets"}},$net;
+	                    if (defined $design_db{"$module_name"}{"net"}{"$net"}) {
+	                        push @{$design_db{$module_name}{"net"}{$net}{"leaf_loads"}},$full_name;
+	                        if ($is_clock_pin) {
+	                        	$design_db{$module_name}{"net"}{$net}{"is_clock_network"} = 1;
+	                        } else {
+	                        	$design_db{$module_name}{"net"}{$net}{"is_clock_network"} = 0;
+	                        }
+	                    } elsif (defined $design_db{"$module_name"}{"port"}{$net}) {
+	                        push @{$design_db{"$module_name"}{"port"}{$net}{"connections"}},$full_name;
+	                        if ($is_clock_pin) {
+	                        	$design_db{$module_name}{"port"}{$net}{"is_clock_network"} = 1;
+	                        } else {
+	                        	$design_db{$module_name}{"port"}{$net}{"is_clock_network"} = 0;
+	                        }
+	                    } else {
+	                        push @{$design_db{$module_name}{"net"}{$net}{"leaf_loads"}},$full_name;
+	                        if ($is_clock_pin) {
+	                        	$design_db{$module_name}{"net"}{$net}{"is_clock_network"} = 1;
+	                        } else {
+	                        	$design_db{$module_name}{"net"}{$net}{"is_clock_network"} = 0;
+	                        }
+	                        #print STDERR "Cannot find definition of net or port $net, connected to $full_name in module $module_name\n" if ($net !~ /CONSTANT/);
+	                    }
+	                } elsif ($pin_direction eq "out") {
+	                    push @{$design_db{"$module_name"}{"cell"}{$inst}{"pin"}{$pin}{"fanout_nets"}},$net;
+	                    if (defined $design_db{"$module_name"}{"net"}{"$net"}) {
+	                        push @{$design_db{$module_name}{"net"}{$net}{"leaf_drivers"}},$full_name;
+	                        if ($is_clock_pin) {
+	                        	$design_db{$module_name}{"net"}{$net}{"is_clock_network"} = 1;
+	                        } else {
+	                        	$design_db{$module_name}{"net"}{$net}{"is_clock_network"} = 0;
+	                        }
+	                    } elsif (defined $design_db{"$module_name"}{"port"}{$net}) {
+	                        push @{$design_db{"$module_name"}{"port"}{$net}{"connections"}},$full_name;
+	                        if ($is_clock_pin) {
+	                        	$design_db{$module_name}{"port"}{$net}{"is_clock_network"} = 1;
+	                        } else {
+	                        	$design_db{$module_name}{"port"}{$net}{"is_clock_network"} = 0;
+	                        }
+	                    } else {
+	                        push @{$design_db{$module_name}{"net"}{$net}{"leaf_drivers"}},$full_name;
+	                        if ($is_clock_pin) {
+	                        	$design_db{$module_name}{"net"}{$net}{"is_clock_network"} = 1;
+	                        } else {
+	                        	$design_db{$module_name}{"net"}{$net}{"is_clock_network"} = 0;
+	                        }
+	                        #print STDERR "Cannot find definition of net or port $net, connected to $full_name in module $module_name\n" if ($net !~ /CONSTANT/);
+	                    }
+	                } else {
+	                    push @{$design_db{"$module_name"}{"cell"}{$inst}{"pin"}{$pin}{"fanin_nets"}},$net;
+	                    push @{$design_db{"$module_name"}{"cell"}{$inst}{"pin"}{$pin}{"fanout_nets"}},$net;
+	                    if (defined $design_db{"$module_name"}{"net"}{"$net"}) {
+	                        push @{$design_db{$module_name}{"net"}{$net}{"leaf_drivers"}},$full_name;
+	                        push @{$design_db{$module_name}{"net"}{$net}{"leaf_loads"}},$full_name;
+	                        if ($is_clock_pin) {
+	                        	$design_db{$module_name}{"net"}{$net}{"is_clock_network"} = 1;
+	                        } else {
+	                        	$design_db{$module_name}{"net"}{$net}{"is_clock_network"} = 0;
+	                        }
+	                    } elsif (defined $design_db{"$module_name"}{"port"}{$net}) {
+	                        push @{$design_db{"$module_name"}{"port"}{$net}{"connections"}},$full_name;
+	                        if ($is_clock_pin) {
+	                        	$design_db{$module_name}{"port"}{$net}{"is_clock_network"} = 1;
+	                        } else {
+	                        	$design_db{$module_name}{"port"}{$net}{"is_clock_network"} = 0;
+	                        }
+	                    } else {
+	                        push @{$design_db{$module_name}{"net"}{$net}{"leaf_drivers"}},$full_name;
+	                        push @{$design_db{$module_name}{"net"}{$net}{"leaf_loads"}},$full_name;
+	                        if ($is_clock_pin) {
+	                        	$design_db{$module_name}{"net"}{$net}{"is_clock_network"} = 1;
+	                        } else {
+	                        	$design_db{$module_name}{"net"}{$net}{"is_clock_network"} = 0;
+	                        }
+	                        #print STDERR "Cannot find definition of net or port $net, connected to $full_name in module $module_name\n" if ($net !~ /CONSTANT/);
+	                    }
+	                }
+	            }
+	        }
 		}
 	}
 }
 
-print Dumper \%design_db;
+print "Finished reading verilog\n";
+my $top_module = &find_top_cell(\%cell_list);
+print Dumper \%cell_list;
 
+print Dumper \%design_db;
 
 
 # sub
@@ -286,4 +334,30 @@ sub is_sequential_cell {
 			return 0;
 		}
 	}
+}
+
+sub find_top_cell {
+    my $cell_list = $_[0];
+    my $topcell;
+    foreach my $cell (keys %$cell_list) {
+        if ($cell_list->{$cell}{"instantiated_by_others"} == 0 and $cell_list->{$cell}{"has_definition"} == 1) {
+            if (defined $topcell and $topcell ne $cell) {
+                print STDERR "ERROR: Multiple top modules found, previously $topcell, and now $cell.\n";
+            }
+            $topcell = $cell;
+        }
+    }
+    return $topcell;
+}
+
+sub link {
+	my ($prefix,$inst_full_name,$design_db) = @_;
+	# TODO
+	# if $inst is not hier cell then
+	#	build full_name for every cell in current hier
+	#	build corresponding %connect entries
+	# else
+	#	copy corresponding entry from %design_db
+	#	$prefix = $inst_full_name . "/" . $prefix;
+	#	&link($prefix)
 }
