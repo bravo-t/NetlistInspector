@@ -18,6 +18,60 @@ my %cell_list;
 my %connections;
 my %std_cell;
 
+# %design_db structure after read_verilog and before link 
+# %design_db => {
+#	$module_name => {
+#		"port" => {
+#			$port_name =>{
+#				'direction' => 'out|in|inout',
+#	            'connections' => [
+#	            	...
+#	            ],
+#	            'is_clock_network' => 0|1,
+#	            'is_bus' => 0|1,
+#	            'full_name' => ...
+#			},
+#			...
+#		}
+#		"net" => {
+#			$net_name => {
+#				'is_clock_network' => 0|1,
+#                'full_name' => '...',
+#                'ref_name' => '...',
+#                'leaf_drivers' => [
+#                    ...
+#                ],
+#                'leaf_loads' => [
+#                    ...
+#                ]
+#			},
+#			...
+#		}
+#		"cell" => {
+#			$cell_name => {
+#				'pin' => {
+#					$pin => {
+#                       'direction' => 'in|out|inout',
+#                       'fanin_nets' => [
+#                                         '...'
+#                                       ],
+#                       'is_clock_pin' => 0|1,
+#                       'is_data_pin' => 0|1,
+#                       'ref_name' => '...',
+#                       'full_name' => '....'
+#		            },
+#		            ...
+#                   'is_sequential' => 0|1,
+#                   'full_name' => '...',
+#                   'ref_name' => '...',
+#                   'is_combinational' => 0|1
+#			},
+#			...
+#		}
+#	},
+#	...
+# }
+
 local $/ = ";";
 while (@files) {
 	my $vlg_file = shift @files;
@@ -352,6 +406,7 @@ sub find_top_cell {
 
 sub link {
 	my ($prefix,$inst_full_name,$design_db) = @_;
+
 	# TODO
 	# if $inst is not hier cell then
 	#	build full_name for every cell in current hier
