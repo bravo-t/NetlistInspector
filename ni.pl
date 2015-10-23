@@ -552,7 +552,7 @@ sub extract_basename {
 
 sub merge_array {
     my ($source_arr,$extra_arr) = @_;
-    for (0 .. $#{$extraarr}) {
+    for (0 .. $#{$extra_arr}) {
         push @{$source_arr},$extra_arr->[$_];
     }
     return $source_arr;
