@@ -1,8 +1,10 @@
-#!/bin/env perl
+#!/bin/perl
 
 use strict;
 use warnings;
+#use re::engine::RE2;
 use IO::Uncompress::Gunzip qw(gunzip $GunzipError);
+use Clone qw(clone);
 use Data::Dumper;
 
 ### GLOBAL VARIABLES ###
@@ -78,6 +80,7 @@ while (@files) {
     my $file_lines;
     my $VLG;
     if ($vlg_file =~ /\.v\.gz/) {
+        #open $VLG,"gunzip -c $vlg_file | " or die $!;
 	    $VLG = new IO::Uncompress::Gunzip $vlg_file or die "gunzip failed: $GunzipError\n";
         $file_lines = `zgrep ";" $vlg_file | wc -l`;
         chomp $file_lines;
@@ -106,7 +109,7 @@ while (@files) {
             next if $line =~ /^\s*$/;
         }
 		if ($line =~ /\bmodule\b/) {
-			$line =~ /\s*module\s+(\S+)\s+\((.*)\)\s*/;
+			$line =~ /\s*module\s+(\S+)\s+\((.*)\)/;
 			$module_name = $1;
 			my $port_list = $2;
 			if (not defined $cell_list{$module_name}{"instantiated_by_others"}) {
@@ -120,7 +123,7 @@ while (@files) {
 				$design_db{"$module_name"}{"port"}{"$port"}{"unused"} = 1;
 			} 
 		} elsif ($line =~ /\binput\b/) {
-			$line =~ s/\s*input\s+//;
+			$line =~ s/\s*input//;
 			$line =~ s/\s+//g;
 			my $width = 1;
 			if ($line =~ /\[(\d+):(\d+)\]/) {
@@ -146,8 +149,8 @@ while (@files) {
 				}
 			}
 		} elsif ($line =~ /\boutput\b/ or $line =~ /\btri\b/) {
-			$line =~ s/\s*output\s+//;
-			$line =~ s/\s*tri\s+//;
+			$line =~ s/\s*output//;
+			$line =~ s/\s*tri//;
 			$line =~ s/\s+//g;
 			my $width = 1;
 			if ($line =~ /\[(\d+):(\d+)\]/) {
@@ -172,7 +175,7 @@ while (@files) {
 				}
 			}
 		} elsif ($line =~ /\binout\b/) {
-			$line =~ s/\s*inout\s+//;
+			$line =~ s/\s*inout//;
 			$line =~ s/\s+//g;
 			my $width = 1;
 			if ($line =~ /\[(\d+):(\d+)\]/) {
@@ -197,7 +200,7 @@ while (@files) {
 				}
 			}
 		} elsif ($line =~ /\bwire\b/) {
-			$line =~ s/\s*wire\s*//;
+			$line =~ s/\s*wire//;
 			$line =~ s/\s+//g;
 			my $width = 1;
 			if ($line =~ /\[(\d+):(\d+)\]/) {
@@ -351,9 +354,10 @@ while (@files) {
 
 print "Finished reading verilog\n";
 my $top_module = &find_top_cell(\%cell_list);
-print Dumper \%cell_list;
+print "top_module = $top_module\n";
+#print Dumper \%cell_list;
 
-print Dumper \%design_db;
+#print Dumper \%design_db;
 
 
 # sub
@@ -404,9 +408,111 @@ sub find_top_cell {
     return $topcell;
 }
 
+# call this sub like &link("",$top_module,\$design_db{$top_module},\%connections);
 sub link {
-	my ($prefix,$inst_full_name,$design_db) = @_;
+	my ($prefix,$inst_full_name,$input_db,$connections,$design_db) = @_;
+    # First build $full_name for all nets in the current hier, because net are not hierarchical
+    # if $prefix equal to "", then we are probably processing top_module, no need to build full_names for nets
+    # if $prefix are not equal to "", but %design_db{$inst_full_name} is not defined, then this cell is probably a std cell, then we treat it as a black box, there's no net inside
+    if ($prefix ne "" and defined $design_db->{$inst_full_name}) {
+        foreach my $net (keys %{$input_db->{"net"}}) {
+            # first build the full_name of $net and don't touch anything
+            # then for all leaf_drivers and leaf_loads:
+            #    find the corresponding cell and pin, then trace the connected nets
+            #    change the name of nets
+            # change the net name in net definition area
+            my $net_full_name = $prefix . "/" . $net;
+            my @leaf_drivers = @{$input_db->{"net"}{$net}{"leaf_drivers"}};
+            my @leaf_loads = @{$input_db->{"net"}{$net}{"leaf_loads"}};
+            # change the net name in pin connection area
+            foreach my $pin_name (@leaf_drivers @leaf_loads) {
+                my ($cell,$pin) = &extract_basename($pin_name);
+                if (defined $cell) {
+                    my $net_collection;
+                    if ($input_db->{"cell"}{$cell}{"pin"}{$pin}{"direction"} eq "in") {
+                        my $net_collection = \@{$input_db->{"cell"}{$cell}{"pin"}{$pin}{"fanin_nets"}};
+                        &add_prefix_to_array_element($prefix,$net,$net_collection);
+                    } elsif ($input_db->{"cell"}{$cell}{"pin"}{$pin}{"direction"} eq "out") {
+                        my $net_collection = \@{$input_db->{"cell"}{$cell}{"pin"}{$pin}{"fanout_nets"}};
+                        &add_prefix_to_array_element($prefix,$net,$net_collection);
+                    } else {
+                        my $net_collection = \@{$input_db->{"cell"}{$cell}{"pin"}{$pin}{"fanin_nets"}};
+                        &add_prefix_to_array_element($prefix,$net,$net_collection);
+                        my $net_collection = \@{$input_db->{"cell"}{$cell}{"pin"}{$pin}{"fanout_nets"}};
+                        &add_prefix_to_array_element($prefix,$net,$net_collection);
+                    }
+                } else {
+                    # TODO
+                    # $pin_name is actually a port name
+                    # Modify the info source, i.e. %design_db{$module_name}{"port"} directly
+                    # The modified info will be copied under $top_module later, so no data will be lost
+                    my $net_collection = \@{$design_db{$cell}{"port"}{$pin}{"connections"}};
+                    &add_prefix_to_array_element($prefix,$net,$net_collection);
+                } 
+            }
+            # change net name in definition area
+            $input_db->{"net"}{$net_full_name} = clone($input_db->{"net"}{$net});
+            $input_db->{"net"}{$net_full_name}{"full_name"} = $net_full_name;
+            delete $input_db->{"net"}{$net};
+        }
+    }
+    # Then build full_name for all cells
+    foreach my $cell (keys %{$input_db->{"cell"}}) {
+        if ($input_db->{"cell"}{$cell}{"is_hierarchical_cell"}) {
+            ###################
+            # copy "net", "cell" and "port" category from module $cell to $top_mdule/$cell
+            ### IMPORTANT ###
+            # DO NOT forget to merge port info and pin info !!!
+            ### IMPORTANT ###
+            # and delete the info source to save memory
+            # my $recursive_db = \%{$input_db->{"cell"}{$cell}}
+            # recursively call &link($recursive_db);
+            ##################
+            ## TODO
+            # First to copy info
 
+            ##### AFTER net, cell and port info is copied, merge port info to pin ######
+            if ($prefix ne "" and defined $design_db->{$inst_full_name}) {
+                # merge port info and pin info of current hier, and then delete port definition to save memory;
+                #		"port" => {
+                #			$port_name =>{
+                #				'direction' => 'out|in|inout',
+                #	            'connections' => [
+                #	            	...
+                #	            ],
+                #	            'is_clock_network' => 0|1,
+                #	            'is_bus' => 0|1,
+                #	            'full_name' => ...
+
+                foreach my $pin (keys %{$input_db->{"pin"}}) {
+                    $input_db->{"pin"}{$pin}{"direction"} = $input_db->{"port"}{$pin}{"direction"};
+                    $input_db->{"pin"}{$pin}{"is_bus_pin"} = $input_db->{"port"}{$pin}{"is_bus"};
+                    #merge @connection
+                    if ($input_db->{"pin"}{$pin}{"direction"} eq "in") {
+                        $input_db->{"pin"}{$pin}{"fanout_nets"} = clone($input_db->{"port"}{$pin}{"connections"});
+                    } elsif ($input_db->{"pin"}{$pin}{"direction"} eq "out") {
+                        $input_db->{"pin"}{$pin}{"fanin_nets"} = clone($input_db->{"port"}{$pin}{"connections"});
+                    } else {
+                        &merge_array(\@{$input_db->{"pin"}{$pin}{"fanin_nets"}},\@{$input_db->{"port"}{$pin}{"connections"}});
+                        &merge_array(\@{$input_db->{"pin"}{$pin}{"fanout_nets"}},\@{$input_db->{"port"}{$pin}{"connections"}});
+                    }
+                }
+            }
+            delete $input_db->{"port"};
+            ############################################################################
+
+
+            # First deal with pins, add an attribute called "is_hierarchical_pin = 1" in %connection
+        } else {
+            ###
+            # build $full_name and %connections
+            ###
+
+            # deal with pins. These are actual pins, so is_hierarchical = 0
+            
+            
+        }
+    }
 	# TODO
 	# if $inst is not hier cell then
 	#	build full_name for every cell in current hier
@@ -415,4 +521,39 @@ sub link {
 	#	copy corresponding entry from %design_db
 	#	$prefix = $inst_full_name . "/" . $prefix;
 	#	&link($prefix)
+}
+
+sub add_prefix_to_array_element {
+    my ($prefix,$ori_val,$array) = @_;
+    for (0 .. $#array) {
+        if ($array->[$_] eq $ori_val) {
+            my $new_val = $prefix . '/' . $ori_val;
+            delete $array->[$_];
+            push @$array,$new_val;
+            last;
+        }
+    }
+}
+
+# avoid using regex as much as possible in reasonable places to increase run time
+# more than 1.5x faster than using regex
+sub extract_basename {
+    my $str = $_[0];
+    my @seg = split "/",$str;
+    my $base_name = $seg[-1];
+    pop @seg;
+    if ($#seg == 0) {
+        return (undef,$base_name);
+    } else {
+        my $path = join("/",@seg);
+        return ($path,$base_name);
+    }
+}
+
+sub merge_array {
+    my ($source_arr,$extra_arr) = @_;
+    for (0 .. $#{$extraarr}) {
+        push @{$source_arr},$extra_arr->[$_];
+    }
+    return $source_arr;
 }
