@@ -360,6 +360,82 @@ print "top_module = $top_module\n";
 #print Dumper \%design_db;
 
 
+# %design_db structure after link 
+# %design_db => {
+#	$top_module => {
+#		"port" => {
+#			$port_name =>{
+#				'direction' => 'out|in|inout',
+#	            'connections' => [
+#	            	...
+#	            ],
+#	            'is_clock_network' => 0|1,
+#	            'is_bus' => 0|1,
+#	            'full_name' => ...
+#			},
+#			...
+#		}
+#		"net" => {
+#			$net_name => {
+#				'is_clock_network' => 0|1,
+#                'full_name' => '...',
+#                'ref_name' => '...',
+#                'leaf_drivers' => [
+#                    ...
+#                ],
+#                'leaf_loads' => [
+#                    ...
+#                ]
+#			},
+#			...
+#		}
+#		"cell" => {
+#			$cell_name => {
+#				'is_hierarchical_cell = 0',
+#               'is_sequential' => 0|1,
+#               'full_name' => '...',
+#               'ref_name' => '...',
+#               'is_combinational' => 0|1,
+#				'pin' => {
+#					$pin => {
+#                       'direction' => 'in|out|inout',
+#                       'fanin_nets' => [
+#                                         '...'
+#                                       ],
+#                       'is_clock_pin' => 0|1,
+#                       'is_data_pin' => 0|1,
+#                       'ref_name' => '...',
+#                       'full_name' => '....',
+#		            },
+#		            ...
+#				},
+#			$cell_name => {
+#				'is_hierarchical_cell' => 1,
+#				'is_sequential' => 0|1,
+#               'full_name' => '...',
+#               'ref_name' => '...',
+#               'is_combinational' => 0|1
+#				'pin' => {
+#					$pin => {
+#                   	'direction' => 'in|out|inout',
+#                    	'fanin_nets' => [
+#                                       '...'
+#                                    	],
+#                    	'is_clock_pin' => 0|1,
+#                    	'is_data_pin' => 0|1,
+#                    	'ref_name' => '...',
+#                    	'full_name' => '....'
+#		         	},
+#		         	...
+#				},
+#				'net' => {...},
+#				'cell' => {...},
+#			},
+#			...
+#		}
+#	},
+# }
+
 # sub
 
 sub get_pin_direction {
@@ -442,7 +518,6 @@ sub link {
                         &add_prefix_to_array_element($prefix,$net,$net_collection);
                     }
                 } else {
-                    # TODO
                     # $pin_name is actually a port name
                     # Modify the info source, i.e. %design_db{$module_name}{"port"} directly
                     # The modified info will be copied under $top_module later, so no data will be lost
@@ -468,10 +543,21 @@ sub link {
             # my $recursive_db = \%{$input_db->{"cell"}{$cell}}
             # recursively call &link($recursive_db);
             ##################
-            ## TODO
-            # First to copy info
+
+            # First to copy info, copy $design_db{$cell} to $input_db{"cell"}
+            if (not defined $design_db->{$cell}) {
+            	die "ERROR: Cannot find module definition for $cell\n";
+            } else {
+            	$input_db->{"cell"}{$cell}{"port"} = clone($design_db->{$cell}{"port"});
+            	$input_db->{"cell"}{$cell}{"net"} = clone($design_db->{$cell}{"net"});
+            	$input_db->{"cell"}{$cell}{"cell"} = clone($design_db->{$cell}{"cell"});
+            	# delete the info source to save memory
+            	delete $design_db->{$cell};
+
+            }
 
             ##### AFTER net, cell and port info is copied, merge port info to pin ######
+            # Make sure we are not doing this pin port info merge for std cell (don't have port info) and for $top_module (does not to merge at all, $top_module does not have 'pin' definition)
             if ($prefix ne "" and defined $design_db->{$inst_full_name}) {
                 # merge port info and pin info of current hier, and then delete port definition to save memory;
                 #		"port" => {
@@ -499,10 +585,10 @@ sub link {
                 }
             }
             delete $input_db->{"port"};
-            ############################################################################
-
-
-            # First deal with pins, add an attribute called "is_hierarchical_pin = 1" in %connection
+            
+            # last, call &link() to process the inner hierarchy;
+            my $recursive_db = \%{$input_db->{"cell"}{$cell}};
+            &link($cell,$cell,$recursive_db,$connections,$design_db);
         } else {
             ###
             # build $full_name and %connections
