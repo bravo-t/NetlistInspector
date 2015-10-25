@@ -11,6 +11,7 @@ use Data::Dumper;
 my $SEQ_PATTERN = "DFF";
 ### GLOBAL VARIABLES ###
 my @files;
+
 ### DEBUG ###
 push @files,"./test.v";
 ### DEBUG ###
@@ -486,9 +487,9 @@ sub find_top_cell {
 
 # call this sub like &link("",$top_module,\$design_db{$top_module},\%connections);
 sub link {
-	my ($prefix,$inst_full_name,$input_db,$connections,$design_db) = @_;
+	my ($prefix,$inst_full_name,$input_db,$design_db) = @_;
     # First build $full_name for all nets in the current hier, because net are not hierarchical
-    # if $prefix equal to "", then we are probably processing top_module, no need to build full_names for nets
+    # if $prefix equal to "", then we are probably in $top_module, no need to build full_names for nets
     # if $prefix are not equal to "", but %design_db{$inst_full_name} is not defined, then this cell is probably a std cell, then we treat it as a black box, there's no net inside
     if ($prefix ne "" and defined $design_db->{$inst_full_name}) {
         foreach my $net (keys %{$input_db->{"net"}}) {
@@ -528,7 +529,6 @@ sub link {
             # change net name in definition area
             $input_db->{"net"}{$net_full_name} = clone($input_db->{"net"}{$net});
             $input_db->{"net"}{$net_full_name}{"full_name"} = $net_full_name;
-            delete $input_db->{"net"}{$net};
         }
     }
     # Then build full_name for all cells
@@ -552,7 +552,6 @@ sub link {
             	$input_db->{"cell"}{$cell}{"net"} = clone($design_db->{$cell}{"net"});
             	$input_db->{"cell"}{$cell}{"cell"} = clone($design_db->{$cell}{"cell"});
             	# delete the info source to save memory
-            	delete $design_db->{$cell};
 
             }
 
@@ -584,29 +583,134 @@ sub link {
                     }
                 }
             }
-            delete $input_db->{"port"};
             
             # last, call &link() to process the inner hierarchy;
             my $recursive_db = \%{$input_db->{"cell"}{$cell}};
             &link($cell,$cell,$recursive_db,$connections,$design_db);
         } else {
-            ###
+            #########################
             # build $full_name and %connections
-            ###
-
-            # deal with pins. These are actual pins, so is_hierarchical = 0
-            
-            
+            #########################
+            # build full_name for cells and change the names accordingly.
+            # names need to be changed in the following order:
+            # first build the full_name of this cell and don't change anything yet.
+            # then for each pin in this current cell:
+            # 	build the full_name for this pin, store it, don't change anything yet, again.
+            #	for every net connected to this pin:
+            #		trace the net, and CHANGE the name of the pin that the net connected to.
+            #	CHANGE the name of the pin
+            # after all info of the pins have been changed, change the full_name of the cell.
+            #########################
+            # skip $top_module because we don't need to change anything is it
+            if ($prefix ne "") {
+            	my $cell_full_name = $prefix . "/" . $input_db->{"cell"}{$cell}{"full_name"};
+            	foreach my $pin (keys %{$input_db->{"cell"}{$cell}{"pin"}}) {
+            		my $pin_full_name = $prefix . "/" . $input_db->{"cell"}{$cell}{"pin"}{$pin}{"full_name"};
+            		if ($input_db->{"cell"}{$cell}{"pin"}{$pin}{"direction"} eq "in") {
+            			foreach my $net (@{$input_db->{"cell"}{$cell}{"pin"}{$pin}{"fanin_nets"}}) {
+            				&add_prefix_to_array_element($prefix,$cell,\@{$input_db->{"net"}{$net}{"leaf_loads"}});
+            				# foreach my $drivers (\@{$input_db->{"net"}{$net}{"leaf_drivers"}}) {}
+            			}
+            		} elsif ($input_db->{"cell"}{$cell}{"pin"}{$pin}{"direction"} eq "out") {
+            			foreach my $net (@{$input_db->{"cell"}{$cell}{"pin"}{$pin}{"fanout_nets"}}) {
+            				&add_prefix_to_array_element($prefix,$cell,\@{$input_db->{"net"}{$net}{"leaf_drivers"}});
+            				# foreach my $drivers (\@{$input_db->{"net"}{$net}{"leaf_loads"}}) {}
+            			}
+            		} else {
+            			foreach my $net (@{$input_db->{"cell"}{$cell}{"pin"}{$pin}{"fanin_nets"}}) {
+            				&add_prefix_to_array_element($prefix,$cell,\@{$input_db->{"net"}{$net}{"leaf_loads"}});
+            				# foreach my $drivers (\@{$input_db->{"net"}{$net}{"leaf_drivers"}}) {}
+            			}
+            			foreach my $net (@{$input_db->{"cell"}{$cell}{"pin"}{$pin}{"fanout_nets"}}) {
+            				&add_prefix_to_array_element($prefix,$cell,\@{$input_db->{"net"}{$net}{"leaf_drivers"}});
+            				# foreach my $drivers (\@{$input_db->{"net"}{$net}{"leaf_loads"}}) {}
+            			}
+            		}
+            		$input_db->{"cell"}{$cell}{"pin"}{$pin}{"full_name"} = $pin_full_name;
+            	}
+            	$input_db->{"cell"}{$cell}{"full_name"} = $cell_full_name;
+            }
         }
     }
-	# TODO
-	# if $inst is not hier cell then
-	#	build full_name for every cell in current hier
-	#	build corresponding %connect entries
-	# else
-	#	copy corresponding entry from %design_db
-	#	$prefix = $inst_full_name . "/" . $prefix;
-	#	&link($prefix)
+}
+
+sub build_connections {
+	my ($inst_full_name,$input_db,$connections) = @_;
+    foreach my $cell (keys %{$input_db->{"cell"}}) {
+        if ($input_db->{"cell"}{$cell}{"is_hierarchical_cell"}) {
+
+        	foreach my $pin (keys %{$input_db->{"cell"}{$cell}{"pin"}}) {
+          		if ($input_db->{"cell"}{$cell}{"pin"}{$pin}{"direction"} eq "in") {
+          			foreach my $net (@{$input_db->{"cell"}{$cell}{"pin"}{$pin}{"fanin_nets"}}) {
+          				&add_prefix_to_array_element($prefix,$cell,\@{$input_db->{"net"}{$net}{"leaf_loads"}});
+          				# foreach my $drivers (\@{$input_db->{"net"}{$net}{"leaf_drivers"}}) {}
+          			}
+          		} elsif ($input_db->{"cell"}{$cell}{"pin"}{$pin}{"direction"} eq "out") {
+          			foreach my $net (@{$input_db->{"cell"}{$cell}{"pin"}{$pin}{"fanout_nets"}}) {
+          				&add_prefix_to_array_element($prefix,$cell,\@{$input_db->{"net"}{$net}{"leaf_drivers"}});
+          				# foreach my $drivers (\@{$input_db->{"net"}{$net}{"leaf_loads"}}) {}
+          			}
+          		} else {
+          			foreach my $net (@{$input_db->{"cell"}{$cell}{"pin"}{$pin}{"fanin_nets"}}) {
+          				&add_prefix_to_array_element($prefix,$cell,\@{$input_db->{"net"}{$net}{"leaf_loads"}});
+          				# foreach my $drivers (\@{$input_db->{"net"}{$net}{"leaf_drivers"}}) {}
+          			}
+          			foreach my $net (@{$input_db->{"cell"}{$cell}{"pin"}{$pin}{"fanout_nets"}}) {
+          				&add_prefix_to_array_element($prefix,$cell,\@{$input_db->{"net"}{$net}{"leaf_drivers"}});
+          				# foreach my $drivers (\@{$input_db->{"net"}{$net}{"leaf_loads"}}) {}
+          			}
+          		}
+          		$input_db->{"cell"}{$cell}{"pin"}{$pin}{"full_name"} = $pin_full_name;
+          	}
+
+            my $recursive_db = \%{$input_db->{"cell"}{$cell}};
+            &build_connections($cell,$recursive_db,$connections);
+        } else {
+
+            #########################
+            # build $full_name and %connections
+            #########################
+            # build full_name for cells and change the names accordingly.
+            # names need to be changed in the following order:
+            # first build the full_name of this cell and don't change anything yet.
+            # then for each pin in this current cell:
+            # 	build the full_name for this pin, store it, don't change anything yet, again.
+            #	for every net connected to this pin:
+            #		trace the net, and CHANGE the name of the pin that the net connected to.
+            #	CHANGE the name of the pin
+            # after all info of the pins have been changed, change the full_name of the cell.
+            #########################
+            # skip $top_module because we don't need to change anything is it
+            if ($prefix ne "") {
+            	my $cell_full_name = $prefix . "/" . $input_db->{"cell"}{$cell}{"full_name"};
+            	foreach my $pin (keys %{$input_db->{"cell"}{$cell}{"pin"}}) {
+            		my $pin_full_name = $prefix . "/" . $input_db->{"cell"}{$cell}{"pin"}{$pin}{"full_name"};
+            		if ($input_db->{"cell"}{$cell}{"pin"}{$pin}{"direction"} eq "in") {
+            			foreach my $net (@{$input_db->{"cell"}{$cell}{"pin"}{$pin}{"fanin_nets"}}) {
+            				&add_prefix_to_array_element($prefix,$cell,\@{$input_db->{"net"}{$net}{"leaf_loads"}});
+            				# foreach my $drivers (\@{$input_db->{"net"}{$net}{"leaf_drivers"}}) {}
+            			}
+            		} elsif ($input_db->{"cell"}{$cell}{"pin"}{$pin}{"direction"} eq "out") {
+            			foreach my $net (@{$input_db->{"cell"}{$cell}{"pin"}{$pin}{"fanout_nets"}}) {
+            				&add_prefix_to_array_element($prefix,$cell,\@{$input_db->{"net"}{$net}{"leaf_drivers"}});
+            				# foreach my $drivers (\@{$input_db->{"net"}{$net}{"leaf_loads"}}) {}
+            			}
+            		} else {
+            			foreach my $net (@{$input_db->{"cell"}{$cell}{"pin"}{$pin}{"fanin_nets"}}) {
+            				&add_prefix_to_array_element($prefix,$cell,\@{$input_db->{"net"}{$net}{"leaf_loads"}});
+            				# foreach my $drivers (\@{$input_db->{"net"}{$net}{"leaf_drivers"}}) {}
+            			}
+            			foreach my $net (@{$input_db->{"cell"}{$cell}{"pin"}{$pin}{"fanout_nets"}}) {
+            				&add_prefix_to_array_element($prefix,$cell,\@{$input_db->{"net"}{$net}{"leaf_drivers"}});
+            				# foreach my $drivers (\@{$input_db->{"net"}{$net}{"leaf_loads"}}) {}
+            			}
+            		}
+            		$input_db->{"cell"}{$cell}{"pin"}{$pin}{"full_name"} = $pin_full_name;
+            	}
+            	$input_db->{"cell"}{$cell}{"full_name"} = $cell_full_name;
+            }
+        }
+    }
 }
 
 sub add_prefix_to_array_element {
