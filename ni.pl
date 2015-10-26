@@ -638,26 +638,24 @@ sub build_connections {
 	my ($inst_full_name,$input_db,$connections) = @_;
     foreach my $cell (keys %{$input_db->{"cell"}}) {
         if ($input_db->{"cell"}{$cell}{"is_hierarchical_cell"}) {
-
-        	foreach my $pin (keys %{$input_db->{"cell"}{$cell}{"pin"}}) {
+			foreach my $pin (keys %{$input_db->{"cell"}{$cell}{"pin"}}) {
           		if ($input_db->{"cell"}{$cell}{"pin"}{$pin}{"direction"} eq "in") {
           			foreach my $net (@{$input_db->{"cell"}{$cell}{"pin"}{$pin}{"fanin_nets"}}) {
-          				&add_prefix_to_array_element($prefix,$cell,\@{$input_db->{"net"}{$net}{"leaf_loads"}});
-          				# foreach my $drivers (\@{$input_db->{"net"}{$net}{"leaf_drivers"}}) {}
+          				foreach my $drivers (\@{$input_db->{"net"}{$net}{"leaf_drivers"}}) {
+          					
+          					push @{$connections->{$drivers}}
+          				}
           			}
           		} elsif ($input_db->{"cell"}{$cell}{"pin"}{$pin}{"direction"} eq "out") {
           			foreach my $net (@{$input_db->{"cell"}{$cell}{"pin"}{$pin}{"fanout_nets"}}) {
-          				&add_prefix_to_array_element($prefix,$cell,\@{$input_db->{"net"}{$net}{"leaf_drivers"}});
-          				# foreach my $drivers (\@{$input_db->{"net"}{$net}{"leaf_loads"}}) {}
+          				foreach my $drivers (\@{$input_db->{"net"}{$net}{"leaf_loads"}}) {}
           			}
           		} else {
           			foreach my $net (@{$input_db->{"cell"}{$cell}{"pin"}{$pin}{"fanin_nets"}}) {
-          				&add_prefix_to_array_element($prefix,$cell,\@{$input_db->{"net"}{$net}{"leaf_loads"}});
-          				# foreach my $drivers (\@{$input_db->{"net"}{$net}{"leaf_drivers"}}) {}
+          				foreach my $drivers (\@{$input_db->{"net"}{$net}{"leaf_drivers"}}) {}
           			}
           			foreach my $net (@{$input_db->{"cell"}{$cell}{"pin"}{$pin}{"fanout_nets"}}) {
-          				&add_prefix_to_array_element($prefix,$cell,\@{$input_db->{"net"}{$net}{"leaf_drivers"}});
-          				# foreach my $drivers (\@{$input_db->{"net"}{$net}{"leaf_loads"}}) {}
+          				foreach my $drivers (\@{$input_db->{"net"}{$net}{"leaf_loads"}}) {}
           			}
           		}
           		$input_db->{"cell"}{$cell}{"pin"}{$pin}{"full_name"} = $pin_full_name;
