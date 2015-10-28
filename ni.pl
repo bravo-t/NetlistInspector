@@ -1,5 +1,4 @@
 #!/bin/env perl
-
 use strict;
 use warnings;
 #use re::engine::RE2;
@@ -13,7 +12,7 @@ my $SEQ_PATTERN = "DFF";
 my @files;
 
 ### DEBUG ###
-push @files,"./test.v";
+push @files,"./test1.v";
 ### DEBUG ###
 #my %design_db;
 
@@ -22,27 +21,38 @@ my %connections;
 my $std_cell;
 
 print "start to read verilog files\n";
+my $time = gmtime();
+print "time is $time\n";
 my ($design_db,$cell_list,$fullname_refname_map) = &read_verilog(\@files);
 print "Finished reading verilog\n";
 my $top_module = &find_top_cell($cell_list);
 print "top_module = $top_module\n";
 
-#print Dumper $cell_list;
-#print "\n=== After read_verilog ===\n";
-#print Dumper $design_db;
+print Dumper $cell_list;
+print "\n=== After read_verilog ===\n";
+print Dumper $design_db;
+
+$time = gmtime();
+print "time is $time\n";
 
 
 &reorg_design_db(\%{$design_db->{$top_module}},$fullname_refname_map);
 
+print "Re-org design_db finished\n";
+$time = gmtime();
+print "time is $time\n";
 
-#print "\n=== After reorg ===\n";
-#print Dumper $design_db;
+print "\n=== After reorg ===\n";
+print Dumper $design_db;
 
 
 
 &link("",$top_module,\%{$design_db->{$top_module}},$design_db,$fullname_refname_map);
 
-print "\n=== After link ===\n";
+print "link finished\n";
+$time = gmtime();
+print "time is $time\n";
+
 print Dumper $design_db;
 
 # %design_db structure after read_verilog and before link 
@@ -520,40 +530,40 @@ sub reorg_design_db {
             	$input_db->{"cell"}{$cell_full_name}{"net"} = clone($design_db->{$cell_ref_name}{"net"});
             	$input_db->{"cell"}{$cell_full_name}{"cell"} = clone($design_db->{$cell_ref_name}{"cell"});
             }
-            print Dumper $input_db;
+            #print Dumper $input_db;
             if (defined $design_db->{$cell_ref_name}) {
-                print "DEBUG: merging ports and pin info\n";
+                #print "DEBUG: merging ports and pin info\n";
                 # merge port info and pin info of current hier
                 foreach my $pin (keys %{$input_db->{"cell"}{$cell_full_name}{"pin"}}) { ### HERE is WRONG!!! ###
 
-                    print "DEBUG: pin = $pin\n";
-                    print Dumper $input_db->{"pin"};
+                    #print "DEBUG: pin = $pin\n";
+                    #print Dumper $input_db->{"pin"};
                     $input_db->{"cell"}{$cell_full_name}{"pin"}{$pin}{"direction"} = $input_db->{"cell"}{$cell_full_name}{"port"}{$pin}{"direction"};
                     $input_db->{"cell"}{$cell_full_name}{"pin"}{$pin}{"is_bus_pin"} = $input_db->{"cell"}{$cell_full_name}{"port"}{$pin}{"is_bus"};
                     #merge @connection
                     if ($input_db->{"cell"}{$cell_full_name}{"pin"}{$pin}{"direction"} eq "in") {
-                        print "DEBUG: before merge:\n";
-                        print Dumper $input_db->{"cell"}{$cell_full_name}{"pin"}{$pin}{"fanout_nets"};
+                        #print "DEBUG: before merge:\n";
+                        #print Dumper $input_db->{"cell"}{$cell_full_name}{"pin"}{$pin}{"fanout_nets"};
                         $input_db->{"cell"}{$cell_full_name}{"pin"}{$pin}{"fanout_nets"} = clone($input_db->{"cell"}{$cell_full_name}{"port"}{$pin}{"connections"});
-                        print "DEBUG: after merge:\n";
-                        print Dumper $input_db->{"cell"}{$cell_full_name}{"pin"}{$pin}{"fanout_nets"};
+                        #print "DEBUG: after merge:\n";
+                        #print Dumper $input_db->{"cell"}{$cell_full_name}{"pin"}{$pin}{"fanout_nets"};
                     } elsif ($input_db->{"cell"}{$cell_full_name}{"pin"}{$pin}{"direction"} eq "out") {
-                        print "DEBUG: before merge:\n";
-                        print Dumper $input_db->{"cell"}{$cell_full_name}{"pin"}{$pin}{"fanin_nets"};
+                        #print "DEBUG: before merge:\n";
+                        #print Dumper $input_db->{"cell"}{$cell_full_name}{"pin"}{$pin}{"fanin_nets"};
                         $input_db->{"cell"}{$cell_full_name}{"pin"}{$pin}{"fanin_nets"} = clone($input_db->{"cell"}{$cell_full_name}{"port"}{$pin}{"connections"});
-                        print "DEBUG: after merge:\n";
-                        print Dumper $input_db->{"cell"}{$cell_full_name}{"pin"}{$pin}{"fanin_nets"};
+                        #print "DEBUG: after merge:\n";
+                        #print Dumper $input_db->{"cell"}{$cell_full_name}{"pin"}{$pin}{"fanin_nets"};
                     } else {
-                        print "DEBUG: before merge:\n";
-                        print Dumper $input_db->{"cell"}{$cell_full_name}{"pin"}{$pin}{"fanout_nets"};
-                        print "DEBUG: before merge:\n";
-                        print Dumper $input_db->{"cell"}{$cell_full_name}{"pin"}{$pin}{"fanin_nets"};
+                        #print "DEBUG: before merge:\n";
+                        #print Dumper $input_db->{"cell"}{$cell_full_name}{"pin"}{$pin}{"fanout_nets"};
+                        #print "DEBUG: before merge:\n";
+                        #print Dumper $input_db->{"cell"}{$cell_full_name}{"pin"}{$pin}{"fanin_nets"};
                         &merge_array(\@{$input_db->{"cell"}{$cell_full_name}{"pin"}{$pin}{"fanin_nets"}},\@{$input_db->{"cell"}{$cell_full_name}{"port"}{$pin}{"connections"}});
                         &merge_array(\@{$input_db->{"cell"}{$cell_full_name}{"pin"}{$pin}{"fanout_nets"}},\@{$input_db->{"cell"}{$cell_full_name}{"port"}{$pin}{"connections"}});
-                        print "DEBUG: after merge:\n";
-                        print Dumper $input_db->{"cell"}{$cell_full_name}{"pin"}{$pin}{"fanout_nets"};
-                        print "DEBUG: after merge:\n";
-                        print Dumper $input_db->{"cell"}{$cell_full_name}{"pin"}{$pin}{"fanin_nets"};
+                        #print "DEBUG: after merge:\n";
+                        #print Dumper $input_db->{"cell"}{$cell_full_name}{"pin"}{$pin}{"fanout_nets"};
+                        #print "DEBUG: after merge:\n";
+                        #print Dumper $input_db->{"cell"}{$cell_full_name}{"pin"}{$pin}{"fanin_nets"};
                     }
                 }
             }
@@ -584,38 +594,38 @@ sub link {
             #    change the name of nets
             # change the net name in net definition area
             my $net_full_name = $prefix . "/" . $net;
-            my @leaf_drivers = @{$input_db->{"net"}{$net}{"leaf_drivers"}};
-            my @leaf_loads = @{$input_db->{"net"}{$net}{"leaf_loads"}};
+            my @leaf_drivers = @{$input_db->{"net"}{$net}{"leaf_drivers"}} if defined $input_db->{"net"}{$net}{"leaf_drivers"};
+            my @leaf_loads = @{$input_db->{"net"}{$net}{"leaf_loads"}} if defined $input_db->{"net"}{$net}{"leaf_loads"};
             # change the net name in pin connection area
             my @leaf_connections;
             push @leaf_connections,@leaf_drivers;
             push @leaf_connections,@leaf_loads;
             foreach my $pin_name (@leaf_connections) {
-                print "DEBUG: pin_name = $pin_name\n";
+                #print "DEBUG: pin_name = $pin_name\n";
                 my ($cell,$pin) = &extract_basename($pin_name);
-                print "DEBUG: cell = $cell\n";
+                #print "DEBUG: cell = $cell\n";
                 if (defined $cell and $cell ne "") {
                     my $net_collection;
                     if ($input_db->{"cell"}{$cell}{"pin"}{$pin}{"direction"} eq "in") {
                         my $net_collection = \@{$input_db->{"cell"}{$cell}{"pin"}{$pin}{"fanin_nets"}};
-                        print Dumper $input_db->{"cell"}{$cell}{"pin"}{$pin}{"fanin_nets"};
-                        print "prefix = $prefix\n";
-                        print "net = $net\n";
+                        #print Dumper $input_db->{"cell"}{$cell}{"pin"}{$pin}{"fanin_nets"};
+                        #print "prefix = $prefix\n";
+                        #print "net = $net\n";
                         &add_prefix_to_array_element($prefix,$net,$net_collection);
                     } elsif ($input_db->{"cell"}{$cell}{"pin"}{$pin}{"direction"} eq "out") {
                         my $net_collection = \@{$input_db->{"cell"}{$cell}{"pin"}{$pin}{"fanout_nets"}};
-                        print Dumper $input_db->{"cell"}{$cell}{"pin"}{$pin}{"fanout_nets"};
-                        print "prefix = $prefix\n";
-                        print "net = $net\n";
+                        #print Dumper $input_db->{"cell"}{$cell}{"pin"}{$pin}{"fanout_nets"};
+                        #print "prefix = $prefix\n";
+                        #print "net = $net\n";
                         &add_prefix_to_array_element($prefix,$net,$net_collection);
                     } else {
                         my $net_collection = \@{$input_db->{"cell"}{$cell}{"pin"}{$pin}{"fanin_nets"}};
-                        print Dumper $input_db->{"cell"}{$cell}{"pin"}{$pin}{"fanout_nets"};
-                        print "prefix = $prefix\n";
-                        print "net = $net\n";
-                        print Dumper $input_db->{"cell"}{$cell}{"pin"}{$pin}{"fanin_nets"};
-                        print "prefix = $prefix\n";
-                        print "net = $net\n";
+                        #print Dumper $input_db->{"cell"}{$cell}{"pin"}{$pin}{"fanout_nets"};
+                        #print "prefix = $prefix\n";
+                        #print "net = $net\n";
+                        #print Dumper $input_db->{"cell"}{$cell}{"pin"}{$pin}{"fanin_nets"};
+                        #print "prefix = $prefix\n";
+                        #print "net = $net\n";
                         &add_prefix_to_array_element($prefix,$net,$net_collection);
                         $net_collection = \@{$input_db->{"cell"}{$cell}{"pin"}{$pin}{"fanout_nets"}};
                         &add_prefix_to_array_element($prefix,$net,$net_collection);
@@ -639,7 +649,56 @@ sub link {
             # my $recursive_db = \%{$input_db->{"cell"}{$cell}}
             # recursively call &link($recursive_db);
             ##################
+            if ($prefix eq "") {
+                $prefix = $cell;
+            } else {
+                $prefix = $prefix . "/" .$cell;
+            }
+            foreach my $pin (keys %{$input_db->{"cell"}{$cell}{"pin"}}) {
+                my $pin_full_name = $prefix . "/" . $input_db->{"cell"}{$cell}{"pin"}{$pin}{"full_name"};
+                if ($input_db->{"cell"}{$cell}{"pin"}{$pin}{"direction"} eq "in") {
+                    foreach my $net (@{$input_db->{"cell"}{$cell}{"pin"}{$pin}{"fanin_nets"}}) {
+                        if (defined $input_db->{"net"}{$net}) {
+                            &add_prefix_to_array_element($prefix,$pin,@{$input_db->{"net"}{$net}{"leaf_loads"}});
+                        } elsif (defined $input_db->{"port"}{$net}) {
+                            &add_prefix_to_array_element($prefix,$pin,@{$input_db->{"port"}{$net}{"fanout_nets"}});
+                        } elsif (defined $input_db->{"pin"}{$net}) {
+                            &add_prefix_to_array_element($prefix,$pin,@{$input_db->{"pin"}{$net}{"fanout_nets"}});
+                        }
+                    }
+                } elsif ($input_db->{"cell"}{$cell}{"pin"}{$pin}{"direction"} eq "out") {
+                    foreach my $net (@{$input_db->{"cell"}{$cell}{"pin"}{$pin}{"fanout_nets"}}) {
+                        if (defined $input_db->{"net"}{$net}) {
+                            &add_prefix_to_array_element($prefix,$pin,@{$input_db->{"net"}{$net}{"leaf_drivers"}});
+                        } elsif (defined $input_db->{"port"}{$net}) {
+                            &add_prefix_to_array_element($prefix,$pin,@{$input_db->{"port"}{$net}{"fanin_nets"}});
+                        } elsif (defined $input_db->{"pin"}{$net}) {
+                            &add_prefix_to_array_element($prefix,$pin,@{$input_db->{"pin"}{$net}{"fanin_nets"}});
+                        }
+                    }
+                } else {
+                    foreach my $net (@{$input_db->{"cell"}{$cell}{"pin"}{$pin}{"fanin_nets"}}) {
+                        if (defined $input_db->{"net"}{$net}) {
+                            &add_prefix_to_array_element($prefix,$pin,@{$input_db->{"net"}{$net}{"leaf_loads"}});
+                        } elsif (defined $input_db->{"port"}{$net}) {
+                            &add_prefix_to_array_element($prefix,$pin,@{$input_db->{"port"}{$net}{"fanout_nets"}});
+                        } elsif (defined $input_db->{"pin"}{$net}) {
+                            &add_prefix_to_array_element($prefix,$pin,@{$input_db->{"pin"}{$net}{"fanout_nets"}});
+                        }
+                    }
+                    foreach my $net (@{$input_db->{"cell"}{$cell}{"pin"}{$pin}{"fanout_nets"}}) {
+                        if (defined $input_db->{"net"}{$net}) {
+                            &add_prefix_to_array_element($prefix,$pin,@{$input_db->{"net"}{$net}{"leaf_drivers"}});
+                        } elsif (defined $input_db->{"port"}{$net}) {
+                            &add_prefix_to_array_element($prefix,$pin,@{$input_db->{"port"}{$net}{"fanin_nets"}});
+                        } elsif (defined $input_db->{"pin"}{$net}) {
+                            &add_prefix_to_array_element($prefix,$pin,@{$input_db->{"pin"}{$net}{"fanin_nets"}});
+                        }
+                    }
+                }
+            }
             my $recursive_db = \%{$input_db->{"cell"}{$cell}};
+            print "link($cell,$cell,$recursive_db,\$design_db,\$fullname_refname_map);\n";
             &link($cell,$cell,$recursive_db,$design_db,$fullname_refname_map);
         } else {
             #########################
@@ -797,6 +856,7 @@ sub uniq {keys { map { $_ => 1} @_}};
 sub add_prefix_to_array_element {
     my ($prefix,$ori_val,$array) = @_;
     my @new_array;
+    print "DEBUG: $prefix,$ori_val\n";
     for (0 .. $#{$array}) {
         if ($array->[$_] eq $ori_val) {
             my $new_val = $prefix . '/' . $ori_val;
@@ -832,4 +892,5 @@ sub merge_array {
     }
     return $source_arr;
 }
+
 
