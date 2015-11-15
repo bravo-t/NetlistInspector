@@ -784,19 +784,15 @@ sub delete_useless_db {
 sub build_connections {
 	my ($inst_full_name,$input_db,$connections) = @_;
 	foreach my $cell (keys %{$input_db->{"cell"}}) {
-        print "DEBUG: building: current cell = $cell\n";
         my $cell_full_name = $input_db->{"cell"}{$cell}{"full_name"};
 		if ($input_db->{"cell"}{$cell}{"is_hierarchical_cell"}) {
-            print "DEBUG: cell $cell is hier cell\n";
 			foreach my $pin (keys %{$input_db->{"cell"}{$cell}{"pin"}}) {
                 my $pin_full_name = $input_db->{"cell"}{$cell}{"pin"}{$pin}{"full_name"};
-                print "DEBUG: pin $pin of $cell\n";
 				if ($input_db->{"cell"}{$cell}{"pin"}{$pin}{"direction"} eq "in") {
 					foreach my $net (@{$input_db->{"cell"}{$cell}{"pin"}{$pin}{"fanin_nets"}}) { 
                         if (defined $input_db->{"net"}{$net}) { # $net is a net
     						foreach my $driver (@{$input_db->{"net"}{$net}{"leaf_drivers"}}) {
     							my ($driver_cell,$driver_pin) = &extract_basename($driver);
-                                print "DEBUG: driver = $driver\n";
     							push @{$connections->{$driver_cell}{$driver_pin}},$pin_full_name;
     						}
                         } else { # $net is actually a port or hier pin of current $cell
@@ -822,7 +818,6 @@ sub build_connections {
                         if (defined $input_db->{"net"}{$net}) { # $net is a net
                             foreach my $driver (@{$input_db->{"net"}{$net}{"leaf_drivers"}}) {
                                 my ($driver_cell,$driver_pin) = &extract_basename($driver);
-                                print "DEBUG: driver = $driver\n";
                                 push @{$connections->{$driver_cell}{$driver_pin}},$pin_full_name;
                             }
                         } else { # $net is actually a port or hier pin of current $cell
@@ -845,7 +840,6 @@ sub build_connections {
 				}
 			}
 			my $recursive_db = \%{$input_db->{"cell"}{$cell}};
-            print "DEBUG: push into $cell\n";
 			&build_connections($cell,$recursive_db,$connections);
 		} else {
 			foreach my $pin (keys %{$input_db->{"cell"}{$cell}{"pin"}}) {
@@ -855,7 +849,6 @@ sub build_connections {
                         if (defined $input_db->{"net"}{$net}) { # $net is a net
                             foreach my $driver (@{$input_db->{"net"}{$net}{"leaf_drivers"}}) {
                                 my ($driver_cell,$driver_pin) = &extract_basename($driver);
-                                print "DEBUG: driver = $driver\n";
                                 push @{$connections->{$driver_cell}{$driver_pin}},$pin_full_name;
                             }
                         } else { # $net is actually a port or hier pin of current $cell
@@ -868,8 +861,6 @@ sub build_connections {
                             my ($dummy,$pin_name) = &extract_basename($pin);
                             push @{$connections->{$cell_full_name}{$pin_name}},$input_db->{"net"}{$net}{"leaf_loads"}[$_] for (0 .. $#{$input_db->{"net"}{$net}{"leaf_loads"}});
                             $connections->{$cell_full_name}{"is_hierarchical_cell"} = 1;
-                            print "DEBUG: cell = $cell, connected to $net\n";
-                            print Dumper $input_db->{"cell"}{$cell};
                             $connections->{$cell_full_name}{"is_sequential_cell"} = $input_db->{"cell"}{$cell}{"is_sequential"};
                         } else { # the fanout net is actually a port or pin
                             my ($dummy,$pin_name) = &extract_basename($pin);
@@ -885,7 +876,6 @@ sub build_connections {
                         if (defined $input_db->{"net"}{$net}) { # $net is a net
                             foreach my $driver (@{$input_db->{"net"}{$net}{"leaf_drivers"}}) {
                                 my ($driver_cell,$driver_pin) = &extract_basename($driver);
-                                print "DEBUG: driver = $driver\n";
                                 push @{$connections->{$driver_cell}{$driver_pin}},$pin_full_name;
                             }
                         } else { # $net is actually a port or hier pin of current $cell
