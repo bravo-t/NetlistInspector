@@ -42,8 +42,13 @@ print "top_module = $top_module\n";
 
 &link("",$top_module,\%{$design_db->{$top_module}},$design_db,$fullname_refname_map);
 
-print "\n=== After link ===\n";
-print Dumper $design_db;
+
+print "### DEBUG: begin building ###\n";
+
+&build_connections($top_module,\%{$design_db->{$top_module}},\%connections);
+
+print "After build connections\n";
+print Dumper \%connections;
 
 # %design_db structure after read_verilog and before link 
 # %design_db => {
@@ -557,7 +562,6 @@ sub link {
 	# if $prefix equal to "", then we are probably in $top_module, no need to build full_names for nets
 	# if $prefix are not equal to "", but %design_db{$inst_full_name} is not defined, then this cell is probably a std cell, then we treat it as a black box, there's no net inside
 	my $inst_ref_name = $fullname_refname_map->{$inst_full_name};
-    print "DEBUG: in GLOBAL section\n";
 	if (defined $input_db->{"pin"}) {
 		foreach my $net (keys %{$input_db->{"net"}}) {
 			# first build the full_name of $net and don't touch anything
@@ -606,13 +610,11 @@ sub link {
                 foreach my $net (@{$input_db->{"pin"}{$pin}{"fanout_nets"}}) {
                     if (defined $input_db->{"net"}{$net}) {
                         # net
-                        print "in pin section: net = $net\n";
                         &add_prefix_to_array_element($prefix,$pin,\@{$input_db->{"net"}{$net}{"leaf_drivers"}});
                     } else {
                         # cell pin
                         my($cell,$pin_inst) = &extract_basename($net);
                         my $connection = \@{$input_db->{"cell"}{$cell}{"pin"}{$pin_inst}{"fanin_nets"}};
-                        print "in pin section: cell = $cell, pin_inst = $pin_inst\n";
                         &add_prefix_to_array_element($prefix,$pin,$connection);
                     }
                 }
@@ -620,13 +622,11 @@ sub link {
                 foreach my $net (@{$input_db->{"pin"}{$pin}{"fanin_nets"}}) {
                     if (defined $input_db->{"net"}{$net}) {
                         # net
-                        print "in pin section: net = $net\n";
                         &add_prefix_to_array_element($prefix,$pin,\@{$input_db->{"net"}{$net}{"leaf_loads"}});
                     } else {
                         # cell pin
                         my($cell,$pin_inst) = &extract_basename($net);
                         my $connection = \@{$input_db->{"cell"}{$cell}{"pin"}{$pin_inst}{"fanout_nets"}};
-                        print "in pin section: cell = $cell, pin_inst = $pin_inst\n";
                         &add_prefix_to_array_element($prefix,$pin,$connection);
                     }
                 }
@@ -634,26 +634,22 @@ sub link {
                 foreach my $net (@{$input_db->{"pin"}{$pin}{"fanout_nets"}}) {
                     if (defined $input_db->{"net"}{$net}) {
                         # net
-                        print "in pin section: net = $net\n";
                         &add_prefix_to_array_element($prefix,$pin,\@{$input_db->{"net"}{$net}{"leaf_drivers"}});
                     } else {
                         # cell pin
                         my($cell,$pin_inst) = &extract_basename($net);
                         my $connection = \@{$input_db->{"cell"}{$cell}{"pin"}{$pin_inst}{"fanin_nets"}};
-                        print "in pin section: cell = $cell, pin_inst = $pin_inst\n";
                         &add_prefix_to_array_element($prefix,$pin,$connection);
                     }
                 }
                 foreach my $net (@{$input_db->{"pin"}{$pin}{"fanin_nets"}}) {
                     if (defined $input_db->{"net"}{$net}) {
                         # net
-                        print "in pin section: net = $net\n";
                         &add_prefix_to_array_element($prefix,$pin,\@{$input_db->{"net"}{$net}{"leaf_loads"}});
                     } else {
                         # cell pin
                         my($cell,$pin_inst) = &extract_basename($net);
                         my $connection = \@{$input_db->{"cell"}{$cell}{"pin"}{$pin_inst}{"fanout_nets"}};
-                        print "in pin section: cell = $cell, pin_inst = $pin_inst\n";
                         &add_prefix_to_array_element($prefix,$pin,$connection);
                     }
                 }
@@ -661,7 +657,6 @@ sub link {
             }
         }
 	}
-    print "DEBUG: out GLOBAL section\n";
 	# Then build full_name for all cells
 	foreach my $cell (keys %{$input_db->{"cell"}}) {
 		if ($input_db->{"cell"}{$cell}{"is_hierarchical_cell"}) {
@@ -691,110 +686,81 @@ sub link {
 				foreach my $pin (keys %{$input_db->{"cell"}{$cell}{"pin"}}) {
 					my $pin_full_name = $prefix . "/" . $input_db->{"cell"}{$cell}{"pin"}{$pin}{"full_name"};
 					if ($input_db->{"cell"}{$cell}{"pin"}{$pin}{"direction"} eq "in") {
-                        print "DEBUG: in cell = $cell,pin = $pin\n";
 						foreach my $net (@{$input_db->{"cell"}{$cell}{"pin"}{$pin}{"fanin_nets"}}) {
-                            print "DEBUG: fanin_nets: $net\n";
                             my ($dummy,$net_ref_name) = &extract_basename($net);
 							if (defined $input_db->{"pin"}{$net_ref_name}) {
-                                print "DEBUG: pin $net defined\n";
 								# This is connected to a port,which is now a pin for this current cell
-                                print Dumper $input_db->{"pin"}{$net_ref_name}{"fanout_nets"};
 								&add_prefix_to_array_element($prefix,"$cell/$pin",\@{$input_db->{"pin"}{$net_ref_name}{"fanout_nets"}});
 							} elsif (defined $input_db->{"pin"}{$net}) {
-                                print "DEBUG: pin $net defined\n";
                                 # This is connected to a port,which is now a pin for this current cell
-                                print Dumper $input_db->{"pin"}{$net}{"fanout_nets"};
                                 &add_prefix_to_array_element($prefix,"$cell/$pin",\@{$input_db->{"pin"}{$net}{"fanout_nets"}});
                             }else {
                                 my ($dummy,$net_ref_name) = &extract_basename($net);
                                 if (defined $input_db->{"net"}{$net_ref_name}) {
-                                    print "DEBUG: net $net_ref_name defined\n";
                                     &add_prefix_to_array_element($prefix,"$cell/$pin",\@{$input_db->{"net"}{$net_ref_name}{"leaf_loads"}});
                                 } elsif (defined $input_db->{"net"}{$net}) {
-                                    print "DEBUG: net $net defined\n";
                                     &add_prefix_to_array_element($prefix,"$cell/$pin",\@{$input_db->{"net"}{$net}{"leaf_loads"}});
                                 } else {
-                                    print "DEBUG: cannot find $net definition in net or pin catrgory\n";
+                                    print "ERROR: cannot find $net definition in net or pin catrgory\n";
                                 }
                             }
 						}
 					} elsif ($input_db->{"cell"}{$cell}{"pin"}{$pin}{"direction"} eq "out") {
-                        print "DEBUG: out cell = $cell,pin = $pin\n";
 						foreach my $net (@{$input_db->{"cell"}{$cell}{"pin"}{$pin}{"fanout_nets"}}) {
                             my ($dummy,$net_ref_name) = &extract_basename($net);
                             if (defined $input_db->{"pin"}{$net_ref_name}) {
-                                print "DEBUG: pin $net defined\n";
                                 # This is connected to a port,which is now a pin for this current cell
-                                print Dumper $input_db->{"pin"}{$net_ref_name}{"fanin_nets"};
                                 &add_prefix_to_array_element($prefix,"$cell/$pin",\@{$input_db->{"pin"}{$net_ref_name}{"fanin_nets"}});
                             } elsif (defined $input_db->{"pin"}{$net}) {
-                                print "DEBUG: pin $net defined\n";
                                 # This is connected to a port,which is now a pin for this current cell
-                                print Dumper $input_db->{"pin"}{$net}{"fanin_nets"};
                                 &add_prefix_to_array_element($prefix,"$cell/$pin",\@{$input_db->{"pin"}{$net}{"fanin_nets"}});
                             } else {
                                 my ($dummy,$net_ref_name) = &extract_basename($net);
                                 if (defined $input_db->{"net"}{$net_ref_name}) {
-                                    print "DEBUG: net $net_ref_name defined\n";
                                     &add_prefix_to_array_element($prefix,"$cell/$pin",\@{$input_db->{"net"}{$net_ref_name}{"leaf_drivers"}});
                                 } elsif (defined $input_db->{"net"}{$net}) {
-                                    print "DEBUG: net $net defined\n";
                                     &add_prefix_to_array_element($prefix,"$cell/$pin",\@{$input_db->{"net"}{$net}{"leaf_drivers"}});
                                 } else {
-                                    print "DEBUG: cannot find $net definition in net or pin catrgory\n";
+                                    print "ERROR: cannot find $net definition in net or pin catrgory\n";
                                 }
                             }
 						}
 					} else {
-                        print "DEBUG: inout cell = $cell,pin = $pin\n";
                         foreach my $net (@{$input_db->{"cell"}{$cell}{"pin"}{$pin}{"fanin_nets"}}) {
                             my ($dummy,$net_ref_name) = &extract_basename($net);
-                            print "DEBUG: fanin_nets: $net\n";
                             if (defined $input_db->{"pin"}{$net_ref_name}) {
-                                print "DEBUG: pin $net defined\n";
                                 # This is connected to a port,which is now a pin for this current cell
-                                print Dumper $input_db->{"pin"}{$net_ref_name}{"fanout_nets"};
                                 &add_prefix_to_array_element($prefix,"$cell/$pin",\@{$input_db->{"pin"}{$net_ref_name}{"fanout_nets"}});
                             } elsif (defined $input_db->{"pin"}{$net}) {
-                                print "DEBUG: pin $net defined\n";
                                 # This is connected to a port,which is now a pin for this current cell
-                                print Dumper $input_db->{"pin"}{$net}{"fanout_nets"};
                                 &add_prefix_to_array_element($prefix,"$cell/$pin",\@{$input_db->{"pin"}{$net}{"fanout_nets"}});
                             } else {
                                 my ($dummy,$net_ref_name) = &extract_basename($net);
                                 if (defined $input_db->{"net"}{$net_ref_name}) {
-                                    print "DEBUG: net $net_ref_name defined\n";
                                     &add_prefix_to_array_element($prefix,"$cell/$pin",\@{$input_db->{"net"}{$net_ref_name}{"leaf_loads"}});
                                 } elsif (defined $input_db->{"net"}{$net}) {
-                                    print "DEBUG: net $net defined\n";
                                     &add_prefix_to_array_element($prefix,"$cell/$pin",\@{$input_db->{"net"}{$net}{"leaf_loads"}});
                                 } else {
-                                    print "DEBUG: cannot find $net definition in net or pin catrgory\n";
+                                    print "ERROR: cannot find $net definition in net or pin catrgory\n";
                                 }
                             }
                         }
                         foreach my $net (@{$input_db->{"cell"}{$cell}{"pin"}{$pin}{"fanout_nets"}}) {
                             my ($dummy,$net_ref_name) = &extract_basename($net);
                             if (defined $input_db->{"pin"}{$net_ref_name}) {
-                                print "DEBUG: pin $net defined\n";
                                 # This is connected to a port,which is now a pin for this current cell
-                                print Dumper $input_db->{"pin"}{$net_ref_name}{"fanin_nets"};
                                 &add_prefix_to_array_element($prefix,"$cell/$pin",\@{$input_db->{"pin"}{$net_ref_name}{"fanin_nets"}});
                             } elsif (defined $input_db->{"pin"}{$net}) {
-                                print "DEBUG: pin $net defined\n";
                                 # This is connected to a port,which is now a pin for this current cell
-                                print Dumper $input_db->{"pin"}{$net}{"fanin_nets"};
                                 &add_prefix_to_array_element($prefix,"$cell/$pin",\@{$input_db->{"pin"}{$net}{"fanin_nets"}});
                             } else {
                                 my ($dummy,$net_ref_name) = &extract_basename($net);
                                 if (defined $input_db->{"net"}{$net_ref_name}) {
-                                    print "DEBUG: net $net_ref_name defined\n";
                                     &add_prefix_to_array_element($prefix,"$cell/$pin",\@{$input_db->{"net"}{$net_ref_name}{"leaf_drivers"}});
                                 } elsif (defined $input_db->{"net"}{$net}) {
-                                    print "DEBUG: net $net defined\n";
                                     &add_prefix_to_array_element($prefix,"$cell/$pin",\@{$input_db->{"net"}{$net}{"leaf_drivers"}});
                                 } else {
-                                    print "DEBUG: cannot find $net definition in net or pin catrgory\n";
+                                    print "ERROR: cannot find $net definition in net or pin catrgory\n";
                                 }
                             }
                         }
@@ -818,77 +784,127 @@ sub delete_useless_db {
 sub build_connections {
 	my ($inst_full_name,$input_db,$connections) = @_;
 	foreach my $cell (keys %{$input_db->{"cell"}}) {
+        print "DEBUG: building: current cell = $cell\n";
+        my $cell_full_name = $input_db->{"cell"}{$cell}{"full_name"};
 		if ($input_db->{"cell"}{$cell}{"is_hierarchical_cell"}) {
+            print "DEBUG: cell $cell is hier cell\n";
 			foreach my $pin (keys %{$input_db->{"cell"}{$cell}{"pin"}}) {
+                my $pin_full_name = $input_db->{"cell"}{$cell}{"pin"}{$pin}{"full_name"};
+                print "DEBUG: pin $pin of $cell\n";
 				if ($input_db->{"cell"}{$cell}{"pin"}{$pin}{"direction"} eq "in") {
-					foreach my $net (@{$input_db->{"cell"}{$cell}{"pin"}{$pin}{"fanin_nets"}}) {
-						foreach my $driver (\@{$input_db->{"net"}{$net}{"leaf_drivers"}}) {
-							my ($driver_cell,$driver_pin) = &extract_basename($driver);
-							push @{$connections->{$driver_cell}{$pin}},$net;
-							$connections->{$driver_cell}{"is_hierarchical_cell"} = 1;
-							$connections->{$driver_cell}{"is_sequantial_cell"} = 0;
-						}
+					foreach my $net (@{$input_db->{"cell"}{$cell}{"pin"}{$pin}{"fanin_nets"}}) { 
+                        if (defined $input_db->{"net"}{$net}) { # $net is a net
+    						foreach my $driver (@{$input_db->{"net"}{$net}{"leaf_drivers"}}) {
+    							my ($driver_cell,$driver_pin) = &extract_basename($driver);
+                                print "DEBUG: driver = $driver\n";
+    							push @{$connections->{$driver_cell}{$driver_pin}},$pin_full_name;
+    						}
+                        } else { # $net is actually a port or hier pin of current $cell
+                            push @{$connections->{$cell_full_name}{$net}},$pin_full_name;
+                        }
 					}
 				} elsif ($input_db->{"cell"}{$cell}{"pin"}{$pin}{"direction"} eq "out") {
 					foreach my $net (@{$input_db->{"cell"}{$cell}{"pin"}{$pin}{"fanout_nets"}}) {
-						my ($dummy,$pin_name) = &extract_basename($pin);
-						push @{$connections->{$cell}{$pin_name}},\@{$input_db->{"net"}{$net}{"leaf_loads"}};
-						$connections->{$cell}{"is_hierarchical_cell"} = 1;
-						$connections->{$cell}{"is_sequantial_cell"} = 0;
+                        if (defined $input_db->{"net"}{$net}) { # the fanout net is a net
+                            my ($dummy,$pin_name) = &extract_basename($pin);
+                            push @{$connections->{$cell_full_name}{$pin_name}},$input_db->{"net"}{$net}{"leaf_loads"}[$_] for (0 .. $#{$input_db->{"net"}{$net}{"leaf_loads"}});
+                            $connections->{$cell_full_name}{"is_hierarchical_cell"} = 1;
+                            $connections->{$cell_full_name}{"is_sequential_cell"} = 0;
+                        } else { # the fanout net is actually a port or pin
+                            my ($dummy,$pin_name) = &extract_basename($pin);
+                            push @{$connections->{$cell_full_name}{$pin_name}},$net;
+                            $connections->{$cell_full_name}{"is_hierarchical_cell"} = 1;
+                            $connections->{$cell_full_name}{"is_sequential_cell"} = 0;
+                        }
 					}
 				} else {
-					foreach my $net (@{$input_db->{"cell"}{$cell}{"pin"}{$pin}{"fanin_nets"}}) {
-						foreach my $driver (\@{$input_db->{"net"}{$net}{"leaf_drivers"}}) {
-							my ($driver_cell,$driver_pin) = &extract_basename($driver);
-							push @{$connections->{$driver_cell}{$pin}},$net;
-							$connections->{$driver_cell}{"is_hierarchical_cell"} = 1;
-							$connections->{$driver_cell}{"is_sequantial_cell"} = 0;
-						}
-					}
-					foreach my $net (@{$input_db->{"cell"}{$cell}{"pin"}{$pin}{"fanout_nets"}}) {
-						my ($dummy,$pin_name) = &extract_basename($pin);
-						push @{$connections->{$cell}{$pin_name}},\@{$input_db->{"net"}{$net}{"leaf_loads"}};
-						$connections->{$cell}{"is_hierarchical_cell"} = 1;
-						$connections->{$cell}{"is_sequantial_cell"} = 0;
-					}
+                    foreach my $net (@{$input_db->{"cell"}{$cell}{"pin"}{$pin}{"fanin_nets"}}) { 
+                        if (defined $input_db->{"net"}{$net}) { # $net is a net
+                            foreach my $driver (@{$input_db->{"net"}{$net}{"leaf_drivers"}}) {
+                                my ($driver_cell,$driver_pin) = &extract_basename($driver);
+                                print "DEBUG: driver = $driver\n";
+                                push @{$connections->{$driver_cell}{$driver_pin}},$pin_full_name;
+                            }
+                        } else { # $net is actually a port or hier pin of current $cell
+                            push @{$connections->{$cell_full_name}{$net}},$pin_full_name;
+                        }
+                    }
+                    foreach my $net (@{$input_db->{"cell"}{$cell}{"pin"}{$pin}{"fanout_nets"}}) {
+                        if (defined $input_db->{"net"}{$net}) { # the fanout net is a net
+                            my ($dummy,$pin_name) = &extract_basename($pin);
+                            push @{$connections->{$cell_full_name}{$pin_name}},$input_db->{"net"}{$net}{"leaf_loads"}[$_] for (0 .. $#{$input_db->{"net"}{$net}{"leaf_loads"}});
+                            $connections->{$cell_full_name}{"is_hierarchical_cell"} = 1;
+                            $connections->{$cell_full_name}{"is_sequential_cell"} = 0;
+                        } else { # the fanout net is actually a port or pin
+                            my ($dummy,$pin_name) = &extract_basename($pin);
+                            push @{$connections->{$cell_full_name}{$pin_name}},$net;
+                            $connections->{$cell_full_name}{"is_hierarchical_cell"} = 1;
+                            $connections->{$cell_full_name}{"is_sequential_cell"} = 0;
+                        }
+                    }
 				}
 			}
 			my $recursive_db = \%{$input_db->{"cell"}{$cell}};
+            print "DEBUG: push into $cell\n";
 			&build_connections($cell,$recursive_db,$connections);
 		} else {
-
-				foreach my $pin (keys %{$input_db->{"cell"}{$cell}{"pin"}}) {
+			foreach my $pin (keys %{$input_db->{"cell"}{$cell}{"pin"}}) {
+                my $pin_full_name = $input_db->{"cell"}{$cell}{"pin"}{$pin}{"full_name"};
 				if ($input_db->{"cell"}{$cell}{"pin"}{$pin}{"direction"} eq "in") {
-					foreach my $net (@{$input_db->{"cell"}{$cell}{"pin"}{$pin}{"fanin_nets"}}) {
-						foreach my $driver (\@{$input_db->{"net"}{$net}{"leaf_drivers"}}) {
-							my ($driver_cell,$driver_pin) = &extract_basename($driver);
-							push @{$connections->{$driver_cell}{$pin}},$pin;
-							$connections->{$driver_cell}{"is_hierarchical_cell"} = 0;
-							$connections->{$driver_cell}{"is_sequantial_cell"} = $input_db->{"cell"}{$driver_cell}{"is_sequential_cell"};
-						}
-					}
+                    foreach my $net (@{$input_db->{"cell"}{$cell}{"pin"}{$pin}{"fanin_nets"}}) { 
+                        if (defined $input_db->{"net"}{$net}) { # $net is a net
+                            foreach my $driver (@{$input_db->{"net"}{$net}{"leaf_drivers"}}) {
+                                my ($driver_cell,$driver_pin) = &extract_basename($driver);
+                                print "DEBUG: driver = $driver\n";
+                                push @{$connections->{$driver_cell}{$driver_pin}},$pin_full_name;
+                            }
+                        } else { # $net is actually a port or hier pin of current $cell
+                            push @{$connections->{$cell_full_name}{$net}},$pin_full_name;
+                        }
+                    }
 				} elsif ($input_db->{"cell"}{$cell}{"pin"}{$pin}{"direction"} eq "out") {
-					foreach my $net (@{$input_db->{"cell"}{$cell}{"pin"}{$pin}{"fanout_nets"}}) {
-						my ($dummy,$pin_name) = &extract_basename($pin);
-						push @{$connections->{$cell}{$pin_name}},\@{$input_db->{"net"}{$net}{"leaf_loads"}};
-						$connections->{$cell}{"is_hierarchical_cell"} = 0;
-						$connections->{$cell}{"is_sequantial_cell"} = $input_db->{"cell"}{$cell}{"is_sequential_cell"};
-					}
+                    foreach my $net (@{$input_db->{"cell"}{$cell}{"pin"}{$pin}{"fanout_nets"}}) {
+                        if (defined $input_db->{"net"}{$net}) { # the fanout net is a net
+                            my ($dummy,$pin_name) = &extract_basename($pin);
+                            push @{$connections->{$cell_full_name}{$pin_name}},$input_db->{"net"}{$net}{"leaf_loads"}[$_] for (0 .. $#{$input_db->{"net"}{$net}{"leaf_loads"}});
+                            $connections->{$cell_full_name}{"is_hierarchical_cell"} = 1;
+                            print "DEBUG: cell = $cell, connected to $net\n";
+                            print Dumper $input_db->{"cell"}{$cell};
+                            $connections->{$cell_full_name}{"is_sequential_cell"} = $input_db->{"cell"}{$cell}{"is_sequential"};
+                        } else { # the fanout net is actually a port or pin
+                            my ($dummy,$pin_name) = &extract_basename($pin);
+                            push @{$connections->{$cell_full_name}{$pin_name}},$net;
+                            $connections->{$cell_full_name}{"is_hierarchical_cell"} = 1;
+                            print "DEBUG: cell = $cell, pin = $pin, connected to $net\n";
+                            print Dumper $input_db->{"cell"}{$cell};
+                            $connections->{$cell_full_name}{"is_sequential_cell"} = $input_db->{"cell"}{$cell}{"is_sequential"};
+                        }
+                    }
 				} else {
-					foreach my $net (@{$input_db->{"cell"}{$cell}{"pin"}{$pin}{"fanin_nets"}}) {
-						foreach my $driver (\@{$input_db->{"net"}{$net}{"leaf_drivers"}}) {
-							my ($driver_cell,$driver_pin) = &extract_basename($driver);
-							push @{$connections->{$driver_cell}{$pin}},$pin;
-							$connections->{$driver_cell}{"is_hierarchical_cell"} = 0;
-							$connections->{$driver_cell}{"is_sequantial_cell"} = $input_db->{"cell"}{$driver_cell}{"is_sequential_cell"};
-						}
-					}
-					foreach my $net (@{$input_db->{"cell"}{$cell}{"pin"}{$pin}{"fanout_nets"}}) {
-						my ($dummy,$pin_name) = &extract_basename($pin);
-						push @{$connections->{$cell}{$pin_name}},\@{$input_db->{"net"}{$net}{"leaf_loads"}};
-						$connections->{$cell}{"is_hierarchical_cell"} = 0;
-						$connections->{$cell}{"is_sequantial_cell"} = $input_db->{"cell"}{$cell}{"is_sequential_cell"};
-					}
+					foreach my $net (@{$input_db->{"cell"}{$cell}{"pin"}{$pin}{"fanin_nets"}}) { 
+                        if (defined $input_db->{"net"}{$net}) { # $net is a net
+                            foreach my $driver (@{$input_db->{"net"}{$net}{"leaf_drivers"}}) {
+                                my ($driver_cell,$driver_pin) = &extract_basename($driver);
+                                print "DEBUG: driver = $driver\n";
+                                push @{$connections->{$driver_cell}{$driver_pin}},$pin_full_name;
+                            }
+                        } else { # $net is actually a port or hier pin of current $cell
+                            push @{$connections->{$cell_full_name}{$net}},$pin_full_name;
+                        }
+                    }
+                    foreach my $net (@{$input_db->{"cell"}{$cell}{"pin"}{$pin}{"fanout_nets"}}) {
+                        if (defined $input_db->{"net"}{$net}) { # the fanout net is a net
+                            my ($dummy,$pin_name) = &extract_basename($pin);
+                            push @{$connections->{$cell_full_name}{$pin_name}},$input_db->{"net"}{$net}{"leaf_loads"}[$_] for (0 .. $#{$input_db->{"net"}{$net}{"leaf_loads"}});
+                            $connections->{$cell_full_name}{"is_hierarchical_cell"} = 1;
+                            $connections->{$cell_full_name}{"is_sequential_cell"} = $input_db->{"cell"}{$cell}{"is_sequential"};
+                        } else { # the fanout net is actually a port or pin
+                            my ($dummy,$pin_name) = &extract_basename($pin);
+                            push @{$connections->{$cell_full_name}{$pin_name}},$net;
+                            $connections->{$cell_full_name}{"is_hierarchical_cell"} = 1;
+                            $connections->{$cell_full_name}{"is_sequential_cell"} = $input_db->{"cell"}{$cell}{"is_sequential"};
+                        }
+                    }
 				}
 			}
 		}
